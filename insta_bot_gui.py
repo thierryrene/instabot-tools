@@ -19,7 +19,14 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
+
+from database_manager import DatabaseManager
+from insights_engine import InsightsEngine
 
 
 class BotWorker(QThread):
@@ -32,6 +39,7 @@ class BotWorker(QThread):
         super().__init__()
         self.config = config
         self.running = True
+        self.db = DatabaseManager()
         
     def run_adb_cmd(self, cmd):
         try:
@@ -94,12 +102,13 @@ class BotWorker(QThread):
             xml_content = self.run_adb_cmd("adb shell cat /data/local/tmp/uidump.xml")
             
             if not xml_content or 'resource-id="com.instagram.android:id/tab_bar"' in xml_content or 'content-desc="Início"' in xml_content:
-                 return "feed", None, False, False
+                 return "feed", None, False, False, ""
 
             root = ET.fromstring(xml_content)
             found_username = "Desconhecido"
             is_sponsored = False
             is_live = False
+            all_text_content = []
 
             ad_keywords = ["patrocinado", "sponsored", "publicidade", "saiba mais", "install now", "instalar agora", "sign up", "cadastre-se", "comprar agora", "shop now", "watch more", "assistir mais"]
             live_keywords = ["ao vivo", "live", "transmissão ao vivo"]
@@ -125,10 +134,15 @@ class BotWorker(QThread):
                 if 'reel_viewer_title' in res_id or 'row_feed_photo_profile_name' in res_id:
                     original_text = node.attrib.get('text', '')
                     if original_text: found_username = original_text
-                    
-            return "story", found_username, is_sponsored, is_live
+                
+                # Coleta todo texto significativo (>= 3 chars) para análise
+                if len(text) > 3:
+                     all_text_content.append(text)
+                     
+            full_text = " || ".join(all_text_content)
+            return "story", found_username, is_sponsored, is_live, full_text
         except:
-            return "story", "Desconhecido", False, False
+            return "story", "Desconhecido", False, False, ""
     
     def wake_and_unlock(self):
         dump = self.run_adb_cmd("adb shell dumpsys window | grep mWakefulness")
@@ -161,6 +175,9 @@ class BotWorker(QThread):
             
             self.log_signal.emit(f"⚡ Bot ativo | Alvo: @{self.config['target_profile']}", "info")
             
+            # Inicia Sessão no DB
+            self.db.start_session(self.config['target_profile'])
+            
             while self.running:
                 # MODO TURBO: Pula verificação de tela para velocidade máxima
                 if self.config.get('turbo_mode', False):
@@ -168,8 +185,9 @@ class BotWorker(QThread):
                     username = "TurboMode"
                     is_ad = False
                     is_live = False
+                    full_text = ""
                 else:
-                    screen_type, username, is_ad, is_live = self.get_screen_details()
+                    screen_type, username, is_ad, is_live, full_text = self.get_screen_details()
                 
                 if screen_type == "feed":
                     self.log_signal.emit("✅ Fim da fila de stories", "success")
@@ -190,6 +208,12 @@ class BotWorker(QThread):
                     display_name = f"{username} (Ad)"
                     emoji = "💸"
                     self.log_signal.emit(f"{emoji} @{display_name}", "warning")
+                elif is_ad:
+                    total_ads += 1
+                    display_name = f"{username} (Ad)"
+                    emoji = "💸"
+                    self.log_signal.emit(f"{emoji} @{display_name}", "warning")
+                    # Log movido para o final do loop para pegar duração
                 else:
                     if username != "Desconhecido" and username != "TurboMode":
                         profile_map[username] = profile_map.get(username, 0) + 1
@@ -198,6 +222,12 @@ class BotWorker(QThread):
                     if username != last_user and not self.config.get('turbo_mode', False):
                         self.log_signal.emit(f"{emoji} @{display_name}", "info")
                         last_user = username
+                    
+                    # Log movido para o final do loop para pegar duração
+                
+                # Atualiza progresso com dados completos
+                # liked_count_start é usado para determinar se houve like no ciclo atual para o log correto
+                liked_count_start = liked_count
                 
                 # Like VIP (Ignora se for Ad, Live ou Turbo Mode)
                 if not self.config.get('turbo_mode', False) and not is_ad and not is_live:
@@ -205,6 +235,7 @@ class BotWorker(QThread):
                         self.like_current_story()
                         liked_count += 1
                         self.log_signal.emit(f"   💖 LIKE em story de @{username}", "success")
+                        # Log movido para o final do loop
                 
                 # Atualiza progresso com dados completos
                 elapsed = time.time() - session_start
@@ -240,6 +271,16 @@ class BotWorker(QThread):
                 if view_time < 0.1: view_time = 0.1
                 
                 time.sleep(view_time)
+                
+                # LOGA AGORA QUE SABEMOS O TEMPO DE VISUALIZAÇÃO
+                # O log foi movido para cá para capturar o `view_time` real
+                
+                # Determina ação
+                action = "view"
+                if liked_count_start < liked_count: action = "like" # Simplificação: se like count mudou no loop, foi like
+                
+                self.db.log_story(username, is_ad=is_ad, is_live=is_live, action_taken=action, full_text=full_text, view_duration=view_time)
+
                 self.tap(self.config['next_x'], self.config['next_y'])
                 time.sleep(0.5)
             
@@ -258,6 +299,8 @@ class BotWorker(QThread):
         except Exception as e:
             self.log_signal.emit(f"⚠️ Erro: {e}", "error")
             self.finished_signal.emit({})
+        finally:
+            self.db.end_session(total_stories, total_ads, liked_count, len(profile_map), time.time() - session_start)
     
     def stop(self):
         self.running = False
@@ -276,6 +319,7 @@ class InstaBotGUI(QMainWindow):
         super().__init__()
         self.bot_thread = None
         self.current_data = {}
+        self.insights = InsightsEngine() # Motor de análise
         self.init_ui()
         
     def init_ui(self):
@@ -677,16 +721,82 @@ class InstaBotGUI(QMainWindow):
         self.canvas_metrics = MplCanvas(self, width=6, height=4, dpi=100)
         self.tabs.addTab(self.canvas_metrics, "⚡ Performance")
         
+        # Tab 4: 🧠 Live Dashboard (Novo!)
+        self.live_dashboard_widget = QWidget()
+        self.init_live_dashboard(self.live_dashboard_widget)
+        self.tabs.addTab(self.live_dashboard_widget, "🧠 Live Intelligence")
+        
         right_layout.addWidget(self.tabs, 1)  # Stretch factor para os gráficos crescerem
         
         # Adiciona layouts ao main
         main_layout.addLayout(left_layout, 1)
         main_layout.addLayout(right_layout, 2)
         
+        # Timer para atualização do Dashboard (a cada 5s)
+        self.dashboard_timer = QTimer()
+        self.dashboard_timer.timeout.connect(self.update_live_dashboard)
+        self.dashboard_timer.start(5000)
+
         self.log("✨ Instagram Stories Bot iniciado", "info")
         self.log("Configure as coordenadas e clique em INICIAR BOT", "info")
         self.update_monitor_display()
     
+    def init_live_dashboard(self, parent):
+        layout = QVBoxLayout(parent)
+        
+        # KPI ROW
+        kpi_layout = QHBoxLayout()
+        
+        self.kpi_trend = QLabel("Trend Ads (1h)\n--%")
+        self.kpi_trend.setStyleSheet("background: #2d3436; color: white; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #636e72;")
+        self.kpi_trend.setAlignment(Qt.AlignCenter)
+        kpi_layout.addWidget(self.kpi_trend)
+        
+        self.kpi_savings = QLabel("Economia Est.\n--s")
+        self.kpi_savings.setStyleSheet("background: #2d3436; color: #00ff88; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #636e72;")
+        self.kpi_savings.setAlignment(Qt.AlignCenter)
+        kpi_layout.addWidget(self.kpi_savings)
+        
+        layout.addLayout(kpi_layout)
+        
+        # Pie Chart Content Categories
+        layout.addWidget(QLabel("📂 Distribuição de Conteúdo (Baseado em Texto)"))
+        self.canvas_categories = MplCanvas(self, width=5, height=4, dpi=90)
+        layout.addWidget(self.canvas_categories)
+        
+    def update_live_dashboard(self):
+        """Busca dados frescos do InsightsEngine e atualiza o painel"""
+        try:
+            # 1. Stats Gerais
+            stats = self.insights.get_live_stats()
+            self.kpi_trend.setText(f"Trend Ads (1h)\n{stats['ad_trend_last_hour']:.1f}%")
+            self.kpi_savings.setText(f"Economia Est.\n{stats['estimated_savings']:.1f}s")
+            
+            # 2. Categorias
+            cats = self.insights.get_content_categories()
+            if cats:
+                labels = list(cats.keys())
+                sizes = list(cats.values())
+                
+                self.canvas_categories.axes.clear()
+                self.canvas_categories.axes.set_facecolor('#0f0f1e')
+                
+                # Só desenha se tiver dados
+                if sum(sizes) > 0:
+                    wedges, texts, autotexts = self.canvas_categories.axes.pie(
+                        sizes, labels=labels, autopct='%1.1f%%',
+                        startangle=90, colors=['#ff7675', '#74b9ff', '#ffeaa7', '#dfe6e9'],
+                        textprops={'color':"w"}
+                    )
+                    self.canvas_categories.axes.set_title("Categorias Detectadas", color="white")
+                else:
+                    self.canvas_categories.axes.text(0.5, 0.5, "Coletando dados...", color="white", ha='center')
+                    
+                self.canvas_categories.draw()
+                
+        except Exception as e:
+            print(f"Erro ao atualizar dashboard: {e}")
+
     def log(self, message, msg_type="info"):
         colors = {
             "info": "#00ff00",
