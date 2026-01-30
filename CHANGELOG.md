@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.5.0] - 2026-01-30
+### Added
+- **Inteligência Competitiva**: Nova funcionalidade de Benchmarking para comparar estratégias entre criadores.
+- **Alertas Virais**: Sistema de detecção de picos (Anomaly Detection) para hashtags e marcas.
+- **Rastreador de Preços**: Monitoramento automático de variações de preços em links detectados.
+- **Nova Aba "🤼 Benchmarking"**: Gráficos comparativos de densidade de ads e tópicos por perfil.
+- **Banner de Alertas**: Notificações visuais no topo do dashboard para eventos virais.
+
 ## [1.4.0] - 2026-01-30
 ### Added
 - **TextAnalyzer**: Módulo avançado para extração de entidades (hashtags, menções, marcas, URLs).

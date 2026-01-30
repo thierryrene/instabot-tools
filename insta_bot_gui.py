@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 from database_manager import DatabaseManager
 from insights_engine import InsightsEngine
 from exporter import DataExporter
+from price_tracker import PriceTracker
 try:
     import pytesseract
     from PIL import Image
@@ -241,12 +242,22 @@ class BotWorker(QThread):
                     display_name = f"{username} (Ad)"
                     emoji = "💸"
                     self.log_signal.emit(f"{emoji} @{display_name}", "warning")
-                elif is_ad:
-                    total_ads += 1
-                    display_name = f"{username} (Ad)"
-                    emoji = "💸"
-                    self.log_signal.emit(f"{emoji} @{display_name}", "warning")
-                    # Log movido para o final do loop para pegar duração
+                
+                # 2.3 RASTREADOR DE PREÇOS (v1.5.0)
+                if not is_ad and full_text:
+                    price_pattern = r'(?:R\$|US\$|€)\s?(\d+(?:[\.,]\d+)?)'
+                    pm = re.search(price_pattern, full_text, re.IGNORECASE)
+                    if pm:
+                        try:
+                            price_val = float(pm.group(1).replace(',', '.'))
+                            currency = "R$" if "R$" in pm.group(0) else "$" # Simplificado
+                            item_id = f"{username}_spotted" # Melhoraria com detecção de produto
+                            variation = self.price_tracker.update_price(item_id, price_val, currency, username)
+                            if variation:
+                                self.log_signal.emit(f"💰 VARIÇÃO DE PREÇO em @{username}: {variation} ({currency}{price_val})", "info")
+                        except: pass
+
+                # Log movido para o final do loop para pegar duração
                 else:
                     if username != "Desconhecido" and username != "TurboMode":
                         profile_map[username] = profile_map.get(username, 0) + 1
@@ -354,6 +365,7 @@ class InstaBotGUI(QMainWindow):
         self.current_data = {}
         self.insights = InsightsEngine() # Motor de análise
         self.exporter = DataExporter()   # Exportador de relatórios
+        self.price_tracker = PriceTracker() # Rastreador de preços
         self.init_ui()
         
     def init_ui(self):
@@ -551,6 +563,13 @@ class InstaBotGUI(QMainWindow):
         config_layout.addLayout(heart_coords_layout)
 
         # Tempo de Visualização (Configurável em tempo real)
+        # ÁREA DE ALERTAS (ROADMAP v1.5.0)
+        self.alert_banner = QLabel("🚀 Monitorando picos virais e tendências...")
+        self.alert_banner.setStyleSheet("background: #3d3d5c; color: #a29bfe; padding: 10px; font-weight: bold; border-radius: 5px;")
+        self.alert_banner.hide()
+        right_layout.addWidget(self.alert_banner)
+
+        # Tab Widget para Gráficos
         time_layout = QHBoxLayout()
         time_layout.addWidget(QLabel("Tempo (s): Min"))
         self.min_time_input = QDoubleSpinBox()
@@ -764,6 +783,11 @@ class InstaBotGUI(QMainWindow):
         self.deep_analysis_widget = QWidget()
         self.init_deep_analysis(self.deep_analysis_widget)
         self.tabs.addTab(self.deep_analysis_widget, "🔬 Deep Analysis")
+
+        # Tab 6: 🤼 Benchmarking 
+        self.bench_widget = QWidget()
+        self.init_benchmarking(self.bench_widget)
+        self.tabs.addTab(self.bench_widget, "🤼 Benchmarking")
         
         right_layout.addWidget(self.tabs, 1)  # Stretch factor para os gráficos crescerem
         
@@ -775,6 +799,8 @@ class InstaBotGUI(QMainWindow):
         self.dashboard_timer = QTimer()
         self.dashboard_timer.timeout.connect(self.update_live_dashboard)
         self.dashboard_timer.timeout.connect(self.update_deep_analysis)
+        self.dashboard_timer.timeout.connect(self.update_benchmarking)
+        self.dashboard_timer.timeout.connect(self.check_viral_alerts)
         self.dashboard_timer.start(5000)
 
         self.log("✨ Instagram Stories Bot iniciado", "info")
@@ -964,6 +990,71 @@ class InstaBotGUI(QMainWindow):
             
         except Exception as e:
             print(f"Erro ao atualizar Deep Analysis: {e}")
+
+    def init_benchmarking(self, parent):
+        """Inicializa a aba de Benchmarking de Criadores."""
+        layout = QVBoxLayout(parent)
+        
+        layout.addWidget(QLabel("🤼 Comparativo de Estrategia por Criador (Últimos 7 dias)"))
+        
+        self.canvas_bench = MplCanvas(self, width=6, height=4, dpi=100)
+        layout.addWidget(self.canvas_bench)
+        
+        # Info Table / Text
+        self.bench_info = QTextEdit()
+        self.bench_info.setReadOnly(True)
+        self.bench_info.setMaximumHeight(100)
+        self.bench_info.setStyleSheet("background: #1e272e; color: #ecf0f1; border-radius: 5px;")
+        layout.addWidget(self.bench_info)
+
+    def update_benchmarking(self):
+        """Atualiza o gráfico de benchmarking."""
+        try:
+            data = self.insights.get_creator_benchmarking()
+            if not data: return
+            
+            names = list(data.keys())
+            densities = [d['ad_density'] for d in data.values()]
+            totals = [d['total_stories'] for d in data.values()]
+            
+            self.canvas_bench.axes.clear()
+            self.canvas_bench.axes.set_facecolor('#0f0f1e')
+            
+            # Gráfico de barras duplo: Total vs Densidade de Ads
+            x = range(len(names))
+            self.canvas_bench.axes.bar(x, totals, width=0.4, label='Total Stories', color='#74b9ff')
+            # Densidade em escala diferente? Usaremos eixo secundário idealmente, mas barras lado a lado basta
+            
+            self.canvas_bench.axes.set_xticks(x)
+            self.canvas_bench.axes.set_xticklabels(names, color='white', rotation=15)
+            self.canvas_bench.axes.tick_params(axis='y', colors='white')
+            self.canvas_bench.axes.legend()
+            self.canvas_bench.draw()
+            
+            # Texto detalhado
+            html = "<table width='100%'>"
+            for name, info in data.items():
+                html += f"<tr><td><b>@{name}</b></td><td>Tópico: {info['primary_topic']}</td><td>Ads: {info['ad_density']:.1f}%</td><td>Engajamento: {info['engagement_potential']}</td></tr>"
+            html += "</table>"
+            self.bench_info.setHtml(html)
+            
+        except Exception as e:
+            print(f"Erro ao atualizar benchmarking: {e}")
+
+    def check_viral_alerts(self):
+        """Verifica se há picos virais e exibe o banner."""
+        try:
+            spikes = self.insights.detect_viral_spikes()
+            if spikes:
+                top_spike = spikes[0]
+                msg = f"🚀 ALERTA VIRAL: {top_spike['item'].upper()} está crescendo rápido ({top_spike['growth']}) nos últimos 30 min!"
+                self.alert_banner.setText(msg)
+                self.alert_banner.setStyleSheet("background: #e67e22; color: white; padding: 10px; font-weight: bold; border-radius: 5px;")
+                self.alert_banner.show()
+            else:
+                self.alert_banner.hide()
+        except:
+            pass
 
     def export_excel(self):
         success, msg = self.exporter.export_to_excel()

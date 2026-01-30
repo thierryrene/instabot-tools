@@ -43,9 +43,11 @@ python3 insights_report.py
 - [x] Exportação de relatórios em PDF/Excel.
 - [x] Análise de sentimento baseada em IA (Lexicon mapping).
 - [x] Deep Analysis: Extração de Hashtags, Menções, Marcas e Tópicos.
+- [x] Inteligência Competitiva e Benchmarking de Criadores.
+- [x] Detectores de Picos Virais e Variação de Preços.
 - [ ] Multi-login e troca rápida de contas.
 - [ ] Agendamento de execuções.
 
 ---
-**Versão atual**: 1.4.0
+**Versão atual**: 1.5.0
 **Status**: Operacional ⚡
