@@ -1,5 +1,6 @@
 import sqlite3
 import datetime
+import re
 from collections import Counter
 
 DB_NAME = "instabot.db"
@@ -22,7 +23,9 @@ class InsightsEngine:
         stats = {
             "ad_trend_last_hour": 0,
             "top_category": "Variado",
-            "estimated_savings": 0
+            "estimated_savings": 0,
+            "detected_prices_count": 0,
+            "detected_links_count": 0
         }
 
         try:
@@ -36,7 +39,28 @@ class InsightsEngine:
             if total and total > 0:
                 stats["ad_trend_last_hour"] = (ads / total) * 100
 
-            # 2. Economia estimada (baseado em sessões recentes)
+            # 2. Contadores de Insights (Regex) nas últimas 24h
+            twenty_four_hours_ago = datetime.datetime.now() - datetime.timedelta(hours=24)
+            cursor.execute('''
+                SELECT full_text FROM stories 
+                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
+            ''', (twenty_four_hours_ago,))
+            rows = cursor.fetchall()
+            
+            prices_found = 0
+            links_found = 0
+            # Regex patterns
+            price_pattern = r'(R\$ ?\d+[\.,]\d+|US\$ ?\d+[\.,]\d+|\d+ ?€)'
+            link_pattern = r'(link na bio|bit\.ly|t\.me|https?://|arrasta|clica aqui)'
+            
+            for (text,) in rows:
+                if re.search(price_pattern, text, re.IGNORECASE): prices_found += 1
+                if re.search(link_pattern, text, re.IGNORECASE): links_found += 1
+                
+            stats["detected_prices_count"] = prices_found
+            stats["detected_links_count"] = links_found
+
+            # 3. Economia estimada
             # Assume 5s por story humano vs view_duration real
             cursor.execute('''
                 SELECT SUM(5.0 - view_duration)
@@ -59,32 +83,35 @@ class InsightsEngine:
         cursor = conn.cursor()
         
         categories = {
-            "Promo/Venda": 0,
-            "Conteúdo": 0,
-            "Notícia": 0,
-            "Outros": 0
+            "🛒 Vendas/Promo": 0,
+            "🎬 Conteúdo": 0,
+            "📰 Notícia": 0,
+            "🔗 Call to Action": 0
         }
         
-        promo_keywords = ['promo', 'oferta', 'desconto', 'cupom', 'venda', 'off', 'lançamento', 'shop', 'comprar', 'frete', 'grátis']
-        news_keywords = ['notícia', 'urgente', 'agora', 'acaba de', 'informação', 'reportagem', 'fofoca', 'polêmica']
+        promo_keywords = ['promo', 'oferta', 'desconto', 'cupom', 'venda', 'off', 'lançamento', 'shop', 'comprar', 'frete', 'grátis', 'R$', 'preço']
+        news_keywords = ['notícia', 'urgente', 'agora', 'acaba de', 'informação', 'reportagem', 'fofoca', 'polêmica', 'revelou', 'veja']
+        cta_keywords = ['link na bio', 'bit.ly', 'clica', 'arrasta', 'saiba mais', 'clique']
         
         try:
-            # Pega os últimos 100 stories com texto
+            # Pega os últimos 200 stories com texto para maior precisão
             cursor.execute('''
                 SELECT full_text FROM stories 
                 WHERE full_text IS NOT NULL AND full_text != "" 
-                ORDER BY id DESC LIMIT 100
+                ORDER BY id DESC LIMIT 200
             ''')
             rows = cursor.fetchall()
             
             for (text,) in rows:
                 text_lower = text.lower()
                 if any(k in text_lower for k in promo_keywords):
-                    categories["Promo/Venda"] += 1
+                    categories["🛒 Vendas/Promo"] += 1
                 elif any(k in text_lower for k in news_keywords):
-                    categories["Notícia"] += 1
+                    categories["📰 Notícia"] += 1
+                elif any(k in text_lower for k in cta_keywords):
+                    categories["🔗 Call to Action"] += 1
                 else:
-                    categories["Conteúdo"] += 1 # Assumimos conteúdo geral se não for venda explícita
+                    categories["🎬 Conteúdo"] += 1 
                     
         except Exception:
             pass

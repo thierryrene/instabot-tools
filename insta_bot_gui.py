@@ -756,6 +756,16 @@ class InstaBotGUI(QMainWindow):
         self.kpi_savings.setStyleSheet("background: #2d3436; color: #00ff88; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #636e72;")
         self.kpi_savings.setAlignment(Qt.AlignCenter)
         kpi_layout.addWidget(self.kpi_savings)
+
+        self.kpi_prices = QLabel("Preços Det.\n0")
+        self.kpi_prices.setStyleSheet("background: #2d3436; color: #f1c40f; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #636e72;")
+        self.kpi_prices.setAlignment(Qt.AlignCenter)
+        kpi_layout.addWidget(self.kpi_prices)
+
+        self.kpi_links = QLabel("Links/CTAs\n0")
+        self.kpi_links.setStyleSheet("background: #2d3436; color: #3498db; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #636e72;")
+        self.kpi_links.setAlignment(Qt.AlignCenter)
+        kpi_layout.addWidget(self.kpi_links)
         
         layout.addLayout(kpi_layout)
         
@@ -771,6 +781,8 @@ class InstaBotGUI(QMainWindow):
             stats = self.insights.get_live_stats()
             self.kpi_trend.setText(f"Trend Ads (1h)\n{stats['ad_trend_last_hour']:.1f}%")
             self.kpi_savings.setText(f"Economia Est.\n{stats['estimated_savings']:.1f}s")
+            self.kpi_prices.setText(f"Preços Det.\n{stats['detected_prices_count']}")
+            self.kpi_links.setText(f"Links/CTAs\n{stats['detected_links_count']}")
             
             # 2. Categorias
             cats = self.insights.get_content_categories()
