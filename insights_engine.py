@@ -2,12 +2,14 @@ import sqlite3
 import datetime
 import re
 from collections import Counter
+from text_analyzer import TextAnalyzer
 
 DB_NAME = "instabot.db"
 
 class InsightsEngine:
     def __init__(self, db_name=DB_NAME):
         self.db_name = db_name
+        self.analyzer = TextAnalyzer()
 
     def _get_conn(self):
         return sqlite3.connect(self.db_name)
@@ -167,5 +169,89 @@ class InsightsEngine:
             
         except Exception:
             return []
+        finally:
+            conn.close()
+
+    def get_trending_hashtags(self, limit=10):
+        """Retorna as hashtags mais frequentes na última hora."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
+        all_hashtags = []
+        
+        try:
+            cursor.execute('''
+                SELECT full_text FROM stories 
+                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
+            ''', (one_hour_ago,))
+            for (text,) in cursor.fetchall():
+                entities = self.analyzer.extract_entities(text)
+                all_hashtags.extend(entities["hashtags"])
+            return Counter(all_hashtags).most_common(limit)
+        except:
+            return []
+        finally:
+            conn.close()
+
+    def get_trending_mentions(self, limit=10):
+        """Retorna as menções mais frequentes na última hora."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
+        all_mentions = []
+        
+        try:
+            cursor.execute('''
+                SELECT full_text FROM stories 
+                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
+            ''', (one_hour_ago,))
+            for (text,) in cursor.fetchall():
+                entities = self.analyzer.extract_entities(text)
+                all_mentions.extend(entities["mentions"])
+            return Counter(all_mentions).most_common(limit)
+        except:
+            return []
+        finally:
+            conn.close()
+
+    def get_brand_exposure(self, limit=10):
+        """Retorna as marcas mais mencionadas."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
+        all_brands = []
+        
+        try:
+            cursor.execute('''
+                SELECT full_text FROM stories 
+                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
+            ''', (one_hour_ago,))
+            for (text,) in cursor.fetchall():
+                entities = self.analyzer.extract_entities(text)
+                all_brands.extend(entities["brands"])
+            return Counter(all_brands).most_common(limit)
+        except:
+            return []
+        finally:
+            conn.close()
+
+    def get_topic_distribution(self):
+        """Retorna a distribuição de tópicos nos últimos stories."""
+        conn = self._get_conn()
+        cursor = conn.cursor()
+        topic_counts = Counter()
+        
+        try:
+            cursor.execute('''
+                SELECT full_text FROM stories 
+                WHERE full_text IS NOT NULL AND full_text != "" 
+                ORDER BY id DESC LIMIT 100
+            ''')
+            for (text,) in cursor.fetchall():
+                topics = self.analyzer.detect_topics(text)
+                topic_counts.update(topics)
+            return dict(topic_counts)
+        except:
+            return {}
         finally:
             conn.close()

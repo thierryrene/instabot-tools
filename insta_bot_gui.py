@@ -760,6 +760,11 @@ class InstaBotGUI(QMainWindow):
         self.init_live_dashboard(self.live_dashboard_widget)
         self.tabs.addTab(self.live_dashboard_widget, "🧠 Live Intelligence")
         
+        # Tab 5: 🔬 Deep Analysis
+        self.deep_analysis_widget = QWidget()
+        self.init_deep_analysis(self.deep_analysis_widget)
+        self.tabs.addTab(self.deep_analysis_widget, "🔬 Deep Analysis")
+        
         right_layout.addWidget(self.tabs, 1)  # Stretch factor para os gráficos crescerem
         
         # Adiciona layouts ao main
@@ -769,6 +774,7 @@ class InstaBotGUI(QMainWindow):
         # Timer para atualização do Dashboard (a cada 5s)
         self.dashboard_timer = QTimer()
         self.dashboard_timer.timeout.connect(self.update_live_dashboard)
+        self.dashboard_timer.timeout.connect(self.update_deep_analysis)
         self.dashboard_timer.start(5000)
 
         self.log("✨ Instagram Stories Bot iniciado", "info")
@@ -862,6 +868,102 @@ class InstaBotGUI(QMainWindow):
                 
         except Exception as e:
             print(f"Erro ao atualizar dashboard: {e}")
+
+    def init_deep_analysis(self, parent):
+        """Inicializa a aba de Deep Analysis com visualizações de tendências."""
+        layout = QVBoxLayout(parent)
+        
+        # Row 1: Hashtags e Menções Trending
+        trends_layout = QHBoxLayout()
+        
+        # Hashtags Trending
+        hashtags_group = QGroupBox("# Hashtags Trending (1h)")
+        hashtags_group.setStyleSheet("QGroupBox { color: white; font-weight: bold; }")
+        hl = QVBoxLayout()
+        self.hashtags_list = QTextEdit()
+        self.hashtags_list.setReadOnly(True)
+        self.hashtags_list.setMaximumHeight(120)
+        self.hashtags_list.setStyleSheet("background: #1e272e; color: #00cec9; border-radius: 5px;")
+        hl.addWidget(self.hashtags_list)
+        hashtags_group.setLayout(hl)
+        trends_layout.addWidget(hashtags_group)
+        
+        # Menções Trending
+        mentions_group = QGroupBox("@ Menções Trending (1h)")
+        mentions_group.setStyleSheet("QGroupBox { color: white; font-weight: bold; }")
+        ml = QVBoxLayout()
+        self.mentions_list = QTextEdit()
+        self.mentions_list.setReadOnly(True)
+        self.mentions_list.setMaximumHeight(120)
+        self.mentions_list.setStyleSheet("background: #1e272e; color: #fd79a8; border-radius: 5px;")
+        ml.addWidget(self.mentions_list)
+        mentions_group.setLayout(ml)
+        trends_layout.addWidget(mentions_group)
+        
+        layout.addLayout(trends_layout)
+        
+        # Row 2: Marcas Detectadas
+        brands_group = QGroupBox("🏷️ Marcas Detectadas (1h)")
+        brands_group.setStyleSheet("QGroupBox { color: white; font-weight: bold; }")
+        bl = QVBoxLayout()
+        self.brands_list = QTextEdit()
+        self.brands_list.setReadOnly(True)
+        self.brands_list.setMaximumHeight(80)
+        self.brands_list.setStyleSheet("background: #1e272e; color: #ffeaa7; border-radius: 5px;")
+        bl.addWidget(self.brands_list)
+        brands_group.setLayout(bl)
+        layout.addWidget(brands_group)
+        
+        # Row 3: Topic Distribution Chart
+        layout.addWidget(QLabel("📊 Distribuição por Tópico"))
+        self.canvas_topics = MplCanvas(self, width=5, height=3, dpi=90)
+        layout.addWidget(self.canvas_topics)
+
+    def update_deep_analysis(self):
+        """Atualiza a aba Deep Analysis com dados em tempo real."""
+        try:
+            # 1. Hashtags
+            hashtags = self.insights.get_trending_hashtags(5)
+            if hashtags:
+                self.hashtags_list.setHtml("<br>".join([f"<b>#{h}</b> ({c}x)" for h, c in hashtags]))
+            else:
+                self.hashtags_list.setText("Aguardando dados...")
+            
+            # 2. Menções
+            mentions = self.insights.get_trending_mentions(5)
+            if mentions:
+                self.mentions_list.setHtml("<br>".join([f"<b>@{m}</b> ({c}x)" for m, c in mentions]))
+            else:
+                self.mentions_list.setText("Aguardando dados...")
+            
+            # 3. Marcas
+            brands = self.insights.get_brand_exposure(5)
+            if brands:
+                self.brands_list.setHtml(" | ".join([f"<b>{b.upper()}</b> ({c}x)" for b, c in brands]))
+            else:
+                self.brands_list.setText("Nenhuma marca detectada ainda.")
+            
+            # 4. Tópicos
+            topics = self.insights.get_topic_distribution()
+            self.canvas_topics.axes.clear()
+            self.canvas_topics.axes.set_facecolor('#0f0f1e')
+            
+            if topics:
+                labels = list(topics.keys())
+                sizes = list(topics.values())
+                colors = ['#ff7675', '#74b9ff', '#55efc4', '#ffeaa7', '#a29bfe', '#fd79a8', '#e17055', '#00cec9']
+                
+                self.canvas_topics.axes.barh(labels, sizes, color=colors[:len(labels)])
+                self.canvas_topics.axes.set_xlabel("Quantidade", color='white')
+                self.canvas_topics.axes.tick_params(axis='y', colors='white')
+                self.canvas_topics.axes.tick_params(axis='x', colors='white')
+            else:
+                self.canvas_topics.axes.text(0.5, 0.5, "Coletando...", color="white", ha='center')
+            
+            self.canvas_topics.draw()
+            
+        except Exception as e:
+            print(f"Erro ao atualizar Deep Analysis: {e}")
 
     def export_excel(self):
         success, msg = self.exporter.export_to_excel()

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-01-30
+### Added
+- **TextAnalyzer**: Módulo avançado para extração de entidades (hashtags, menções, marcas, URLs).
+- **Detecção de Tópicos**: Classificação automática de stories em categorias (Moda, Tech, Fitness, etc).
+- **Nova Aba "Deep Analysis"**: Visualização de Hashtags/Menções Trending, Marcas Detectadas, e Gráfico de Tópicos.
+- **Métodos de Trending**: `get_trending_hashtags()`, `get_trending_mentions()`, `get_brand_exposure()`, `get_topic_distribution()`.
+
 ## [1.3.0] - 2026-01-30
 ### Added
 - **Visual OCR**: Suporte para extração de texto via processamento de imagem (adb screenshot + pytesseract).
