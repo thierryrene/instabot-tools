@@ -173,70 +173,67 @@ class InsightsEngine:
             conn.close()
 
     def get_trending_hashtags(self, limit=10):
-        """Retorna as hashtags mais frequentes na última hora."""
+        """Retorna as hashtags mais frequentes na última hora usando a tabela de entidades."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
-        all_hashtags = []
         
         try:
+            one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
             cursor.execute('''
-                SELECT full_text FROM stories 
-                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
-            ''', (one_hour_ago,))
-            for (text,) in cursor.fetchall():
-                entities = self.analyzer.extract_entities(text)
-                all_hashtags.extend(entities["hashtags"])
-            return Counter(all_hashtags).most_common(limit)
-        except:
-            return []
+                SELECT e.value, COUNT(*) as count 
+                FROM story_entities e
+                JOIN stories s ON e.story_id = s.id
+                WHERE s.timestamp > ? AND e.type = 'hashtag'
+                GROUP BY e.value 
+                ORDER BY count DESC 
+                LIMIT ?
+            ''', (one_hour_ago, limit))
+            return cursor.fetchall()
         finally:
             conn.close()
 
     def get_trending_mentions(self, limit=10):
-        """Retorna as menções mais frequentes na última hora."""
+        """Retorna as menções mais frequentes na última hora usando a tabela de entidades."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
-        all_mentions = []
         
         try:
+            one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
             cursor.execute('''
-                SELECT full_text FROM stories 
-                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
-            ''', (one_hour_ago,))
-            for (text,) in cursor.fetchall():
-                entities = self.analyzer.extract_entities(text)
-                all_mentions.extend(entities["mentions"])
-            return Counter(all_mentions).most_common(limit)
-        except:
-            return []
+                SELECT e.value, COUNT(*) as count 
+                FROM story_entities e
+                JOIN stories s ON e.story_id = s.id
+                WHERE s.timestamp > ? AND e.type = 'mention'
+                GROUP BY e.value 
+                ORDER BY count DESC 
+                LIMIT ?
+            ''', (one_hour_ago, limit))
+            return cursor.fetchall()
         finally:
             conn.close()
 
     def get_brand_exposure(self, limit=10):
-        """Retorna as marcas mais mencionadas."""
+        """Retorna as marcas mais detectadas na última hora usando a tabela de entidades."""
         conn = self._get_conn()
         cursor = conn.cursor()
-        one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
-        all_brands = []
         
         try:
+            one_hour_ago = datetime.datetime.now() - datetime.timedelta(hours=1)
             cursor.execute('''
-                SELECT full_text FROM stories 
-                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
-            ''', (one_hour_ago,))
-            for (text,) in cursor.fetchall():
-                entities = self.analyzer.extract_entities(text)
-                all_brands.extend(entities["brands"])
-            return Counter(all_brands).most_common(limit)
-        except:
-            return []
+                SELECT e.value, COUNT(*) as count 
+                FROM story_entities e
+                JOIN stories s ON e.story_id = s.id
+                WHERE s.timestamp > ? AND e.type = 'brand'
+                GROUP BY e.value 
+                ORDER BY count DESC 
+                LIMIT ?
+            ''', (one_hour_ago, limit))
+            return cursor.fetchall()
         finally:
             conn.close()
 
     def get_topic_distribution(self):
-        """Retorna a distribuição de tópicos nos últimos stories."""
+        """Retorna a distribuição de tópicos nos últimos 100 stories."""
         conn = self._get_conn()
         cursor = conn.cursor()
         topic_counts = Counter()

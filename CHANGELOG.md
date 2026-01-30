@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.6.0] - 2026-01-30
+### Added
+- **Persistência Estruturada**: Nova tabela `story_entities` para armazenamento otimizado de hashtags, marcas e menções.
+- **Performance do Dashboard**: Consultas SQL otimizadas que tornam o tempo de resposta instantâneo, mesmo com milhares de registros.
+- **Relatórios Premium**: Exportador de PDF e Excel agora inclui **Histórico de Preços** e **Entidades Extraídas**.
+- **Auditoria de Dados**: Garantia de que cada story capturado via OCR é salvo imediatamente com todos os metadados.
+
 ## [1.5.0] - 2026-01-30
 ### Added
 - **Inteligência Competitiva**: Nova funcionalidade de Benchmarking para comparar estratégias entre criadores.

@@ -19,10 +19,14 @@ class DataExporter:
         try:
             stories_df = pd.read_sql_query("SELECT * FROM stories", conn)
             sessions_df = pd.read_sql_query("SELECT * FROM sessions", conn)
+            entities_df = pd.read_sql_query("SELECT * FROM story_entities", conn)
+            prices_df = pd.read_sql_query("SELECT * FROM price_history", conn)
             
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                 stories_df.to_excel(writer, sheet_name='Stories', index=False)
                 sessions_df.to_excel(writer, sheet_name='Sessões', index=False)
+                entities_df.to_excel(writer, sheet_name='Entidades Extraídas', index=False)
+                prices_df.to_excel(writer, sheet_name='Histórico de Preços', index=False)
             
             return True, output_path
         except Exception as e:
@@ -88,6 +92,24 @@ class DataExporter:
             ''')
             for row in cursor.fetchall():
                 pdf.cell(200, 8, txt=f"  @{row[0]}: {row[1]} stories", ln=True)
+
+            # Top Hashtags
+            pdf.ln(5)
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(200, 10, txt="Top 5 Hashtags:", ln=True)
+            pdf.set_font("Arial", size=11)
+            cursor.execute("SELECT value, COUNT(*) as c FROM story_entities WHERE type='hashtag' GROUP BY value ORDER BY c DESC LIMIT 5")
+            for row in cursor.fetchall():
+                pdf.cell(200, 8, txt=f"  #{row[0]}: {row[1]}x", ln=True)
+
+            # Variações de Preço
+            pdf.ln(5)
+            pdf.set_font("Arial", 'B', 12)
+            pdf.cell(200, 10, txt="Últimas Variações de Preço:", ln=True)
+            pdf.set_font("Arial", size=11)
+            cursor.execute("SELECT username, price, currency, timestamp FROM price_history ORDER BY timestamp DESC LIMIT 5")
+            for row in cursor.fetchall():
+                pdf.cell(200, 8, txt=f"  @{row[0]}: {row[2]}{row[1]} em {row[3][:16]}", ln=True)
 
             pdf.output(output_path)
             return True, output_path

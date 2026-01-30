@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-import threading
+import re
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QLineEdit, QPushButton, 
                              QTextEdit, QGroupBox, QProgressBar, QSpinBox, 
@@ -19,16 +19,12 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 
 from database_manager import DatabaseManager
 from insights_engine import InsightsEngine
 from exporter import DataExporter
 from price_tracker import PriceTracker
+from text_analyzer import TextAnalyzer
 try:
     import pytesseract
     from PIL import Image
@@ -48,6 +44,7 @@ class BotWorker(QThread):
         self.config = config
         self.running = True
         self.db = DatabaseManager()
+        self.price_tracker = PriceTracker()
         
     def run_adb_cmd(self, cmd):
         try:
@@ -190,17 +187,19 @@ class BotWorker(QThread):
         self.log_signal.emit("✅ Instagram aberto", "success")
     
     def run(self):
+        analyzer = TextAnalyzer() # Analisador de Texto
+        total_stories = 0
+        total_ads = 0
+        liked_count = 0
+        profile_map = {}
+        last_user = None
+        real_stories = 0
+        session_start = time.time()
+
         try:
             self.start_instagram()
             self.tap(self.config['story_x'], self.config['story_y'], randomize=False)
             time.sleep(2)
-            
-            total_stories = 0
-            total_ads = 0
-            liked_count = 0
-            profile_map = {}
-            last_user = None
-            session_start = time.time()
             
             self.log_signal.emit(f"⚡ Bot ativo | Alvo: @{self.config['target_profile']}", "info")
             
@@ -256,18 +255,17 @@ class BotWorker(QThread):
                             if variation:
                                 self.log_signal.emit(f"💰 VARIÇÃO DE PREÇO em @{username}: {variation} ({currency}{price_val})", "info")
                         except: pass
-
+                
                 # Log movido para o final do loop para pegar duração
-                else:
-                    if username != "Desconhecido" and username != "TurboMode":
-                        profile_map[username] = profile_map.get(username, 0) + 1
-                    
-                    # Só loga cada usuário novo se não estiver no modo turbo
-                    if username != last_user and not self.config.get('turbo_mode', False):
-                        self.log_signal.emit(f"{emoji} @{display_name}", "info")
-                        last_user = username
-                    
-                    # Log movido para o final do loop para pegar duração
+                if username != "Desconhecido" and username != "TurboMode":
+                    profile_map[username] = profile_map.get(username, 0) + 1
+                
+                # Só loga cada usuário novo se não estiver no modo turbo
+                if username != last_user and not self.config.get('turbo_mode', False):
+                    self.log_signal.emit(f"{emoji} @{display_name}", "info")
+                    last_user = username
+                
+                # Log movido para o final do loop para pegar duração
                 
                 # Atualiza progresso com dados completos
                 # liked_count_start é usado para determinar se houve like no ciclo atual para o log correto
@@ -323,13 +321,19 @@ class BotWorker(QThread):
                 action = "view"
                 if liked_count_start < liked_count: action = "like" # Simplificação: se like count mudou no loop, foi like
                 
-                self.db.log_story(username, is_ad=is_ad, is_live=is_live, action_taken=action, full_text=full_text, view_duration=view_time)
+                story_id = self.db.log_story(username, is_ad=is_ad, is_live=is_live, action_taken=action, full_text=full_text, view_duration=view_time)
+                
+                # PERSISTÊNCIA DE ENTIDADES (v1.6.0)
+                if story_id and full_text:
+                    analysis = analyzer.analyze(full_text)
+                    self.db.save_entities(story_id, analysis['entities'])
 
                 self.tap(self.config['next_x'], self.config['next_y'])
                 time.sleep(0.5)
             
             # Relatório final
             duration = time.time() - session_start
+            real_stories = total_stories - total_ads
             report = {
                 'total_stories': total_stories,
                 'total_ads': total_ads,
