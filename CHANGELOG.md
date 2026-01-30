@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-01-30
+### Added
+- **Visual OCR**: Suporte para extração de texto via processamento de imagem (adb screenshot + pytesseract).
+- **Exportadores**: Novos botões para exportar dados para PDF (fpdf) e Excel (pandas/openpyxl).
+- **Análise de Sentimento**: Classificação automática de agressividade/positividade do conteúdo (🟢/🔴/🟡).
+- **Novos KPIs**: Preços, Links e Sentimento agora visíveis no Dashboard.
+
 ## [1.2.0] - 2026-01-30
 ### Added
 - **Real-time Insights Dashboard**: New "Live Intelligence" tab in GUI.

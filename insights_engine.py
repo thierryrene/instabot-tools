@@ -25,7 +25,8 @@ class InsightsEngine:
             "top_category": "Variado",
             "estimated_savings": 0,
             "detected_prices_count": 0,
-            "detected_links_count": 0
+            "detected_links_count": 0,
+            "avg_sentiment": "Neutro"
         }
 
         try:
@@ -60,7 +61,27 @@ class InsightsEngine:
             stats["detected_prices_count"] = prices_found
             stats["detected_links_count"] = links_found
 
-            # 3. Economia estimada
+            # 3. Análise de Sentimento das últimas 24h
+            cursor.execute('''
+                SELECT full_text FROM stories 
+                WHERE timestamp > ? AND full_text IS NOT NULL AND full_text != ""
+            ''', (twenty_four_hours_ago,))
+            texts = [row[0] for row in cursor.fetchall()]
+            if texts:
+                sentiment_score = 0
+                pos_words = ['bom', 'ótimo', 'excelente', 'legal', 'top', 'feliz', 'amando', 'perfeito', 'ganhei', 'promo', 'novo', 'sorteio']
+                neg_words = ['ruim', 'chato', 'triste', 'perdi', 'odio', 'problema', 'erro', 'cansado', 'reclamar', 'pessimo', 'urgente']
+                
+                for text in texts:
+                    t = text.lower()
+                    score = sum(1 for w in pos_words if w in t) - sum(1 for w in neg_words if w in t)
+                    sentiment_score += score
+                
+                if sentiment_score > 5: stats["avg_sentiment"] = "🟢 Positivo"
+                elif sentiment_score < -5: stats["avg_sentiment"] = "🔴 Negativo"
+                else: stats["avg_sentiment"] = "🟡 Neutro"
+
+            # 4. Economia estimada
             # Assume 5s por story humano vs view_duration real
             cursor.execute('''
                 SELECT SUM(5.0 - view_duration)

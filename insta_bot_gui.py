@@ -27,6 +27,13 @@ import matplotlib.pyplot as plt
 
 from database_manager import DatabaseManager
 from insights_engine import InsightsEngine
+from exporter import DataExporter
+try:
+    import pytesseract
+    from PIL import Image
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
 
 
 class BotWorker(QThread):
@@ -102,7 +109,7 @@ class BotWorker(QThread):
             xml_content = self.run_adb_cmd("adb shell cat /data/local/tmp/uidump.xml")
             
             if not xml_content or 'resource-id="com.instagram.android:id/tab_bar"' in xml_content or 'content-desc="Início"' in xml_content:
-                 return "feed", None, False, False, ""
+                 return {"screen_type": "feed", "username": None, "is_ad": False, "is_live": False, "full_text": ""}
 
             root = ET.fromstring(xml_content)
             found_username = "Desconhecido"
@@ -118,16 +125,12 @@ class BotWorker(QThread):
                 desc = node.attrib.get('content-desc', '').lower()
                 res_id = node.attrib.get('resource-id', '')
                 
-                # Combina texto e descrição para busca
                 content_to_check = f"{text} {desc}"
 
-                # Detecção de Anúncios
                 if any(kw in content_to_check for kw in ad_keywords):
                     is_sponsored = True
                 
-                # Detecção de Lives
                 if any(kw in content_to_check for kw in live_keywords):
-                    # Refinamento: Lives geralmente têm contagem de espectadores ou "Ao vivo" explícito
                     if "espectadores" in content_to_check or text == "ao vivo" or text == "live":
                         is_live = True
 
@@ -135,14 +138,39 @@ class BotWorker(QThread):
                     original_text = node.attrib.get('text', '')
                     if original_text: found_username = original_text
                 
-                # Coleta todo texto significativo (>= 3 chars) para análise
-                if len(text) > 3:
+                if len(text) >= 3:
                      all_text_content.append(text)
-                     
+            
+            # 2.2 OCR VISUAL (ROADMAP v1.3.0)
+            ocr_text = ""
+            if OCR_AVAILABLE:
+                try:
+                    screenshot_path = "ocr_temp.png"
+                    self.run_adb_cmd(f"adb shell screencap -p /sdcard/{screenshot_path}")
+                    self.run_adb_cmd(f"adb pull /sdcard/{screenshot_path} {screenshot_path}")
+                    
+                    if os.path.exists(screenshot_path):
+                        img = Image.open(screenshot_path)
+                        img = img.convert('L') # Greyscale for better OCR
+                        ocr_text = pytesseract.image_to_string(img, lang='por+eng')
+                        os.remove(screenshot_path)
+                        self.run_adb_cmd(f"adb shell rm /sdcard/{screenshot_path}")
+                except Exception as e:
+                    self.log_signal.emit(f"⚠️ Erro no OCR: {str(e)[:50]}...", "warning")
+
             full_text = " || ".join(all_text_content)
-            return "story", found_username, is_sponsored, is_live, full_text
-        except:
-            return "story", "Desconhecido", False, False, ""
+            if ocr_text.strip():
+                full_text += " || [OCR]: " + ocr_text.strip().replace("\n", " ")
+
+            return {
+                "screen_type": "story",
+                "username": found_username,
+                "is_ad": is_sponsored,
+                "is_live": is_live,
+                "full_text": full_text
+            }
+        except Exception:
+            return {"screen_type": "story", "username": "Desconhecido", "is_ad": False, "is_live": False, "full_text": ""}
     
     def wake_and_unlock(self):
         dump = self.run_adb_cmd("adb shell dumpsys window | grep mWakefulness")
@@ -187,7 +215,12 @@ class BotWorker(QThread):
                     is_live = False
                     full_text = ""
                 else:
-                    screen_type, username, is_ad, is_live, full_text = self.get_screen_details()
+                    details = self.get_screen_details()
+                    screen_type = details['screen_type']
+                    username = details['username']
+                    is_ad = details['is_ad']
+                    is_live = details['is_live']
+                    full_text = details['full_text']
                 
                 if screen_type == "feed":
                     self.log_signal.emit("✅ Fim da fila de stories", "success")
@@ -320,6 +353,7 @@ class InstaBotGUI(QMainWindow):
         self.bot_thread = None
         self.current_data = {}
         self.insights = InsightsEngine() # Motor de análise
+        self.exporter = DataExporter()   # Exportador de relatórios
         self.init_ui()
         
     def init_ui(self):
@@ -766,9 +800,28 @@ class InstaBotGUI(QMainWindow):
         self.kpi_links.setStyleSheet("background: #2d3436; color: #3498db; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #636e72;")
         self.kpi_links.setAlignment(Qt.AlignCenter)
         kpi_layout.addWidget(self.kpi_links)
+
+        self.kpi_sentiment = QLabel("Sentimento\n--")
+        self.kpi_sentiment.setStyleSheet("background: #2d3436; color: white; padding: 10px; border-radius: 8px; font-weight: bold; border: 1px solid #636e72;")
+        self.kpi_sentiment.setAlignment(Qt.AlignCenter)
+        kpi_layout.addWidget(self.kpi_sentiment)
         
         layout.addLayout(kpi_layout)
         
+        # Action Buttons for Export
+        actions_layout = QHBoxLayout()
+        self.btn_export_excel = QPushButton("📗 Exportar Excel")
+        self.btn_export_excel.clicked.connect(self.export_excel)
+        self.btn_export_excel.setStyleSheet("background: #27ae60; color: white; font-weight: bold; padding: 8px;")
+        
+        self.btn_export_pdf = QPushButton("📕 Gerar PDF")
+        self.btn_export_pdf.clicked.connect(self.export_pdf)
+        self.btn_export_pdf.setStyleSheet("background: #c0392b; color: white; font-weight: bold; padding: 8px;")
+        
+        actions_layout.addWidget(self.btn_export_excel)
+        actions_layout.addWidget(self.btn_export_pdf)
+        layout.addLayout(actions_layout)
+
         # Pie Chart Content Categories
         layout.addWidget(QLabel("📂 Distribuição de Conteúdo (Baseado em Texto)"))
         self.canvas_categories = MplCanvas(self, width=5, height=4, dpi=90)
@@ -783,6 +836,7 @@ class InstaBotGUI(QMainWindow):
             self.kpi_savings.setText(f"Economia Est.\n{stats['estimated_savings']:.1f}s")
             self.kpi_prices.setText(f"Preços Det.\n{stats['detected_prices_count']}")
             self.kpi_links.setText(f"Links/CTAs\n{stats['detected_links_count']}")
+            self.kpi_sentiment.setText(f"Sentimento\n{stats['avg_sentiment']}")
             
             # 2. Categorias
             cats = self.insights.get_content_categories()
@@ -808,6 +862,16 @@ class InstaBotGUI(QMainWindow):
                 
         except Exception as e:
             print(f"Erro ao atualizar dashboard: {e}")
+
+    def export_excel(self):
+        success, msg = self.exporter.export_to_excel()
+        if success: self.log(f"✅ Excel exportado: {msg}", "success")
+        else: self.log(f"❌ Erro ao exportar Excel: {msg}", "error")
+
+    def export_pdf(self):
+        success, msg = self.exporter.export_to_pdf()
+        if success: self.log(f"✅ PDF gerado: {msg}", "success")
+        else: self.log(f"❌ Erro ao gerar PDF: {msg}", "error")
 
     def log(self, message, msg_type="info"):
         colors = {

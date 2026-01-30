@@ -39,9 +39,11 @@ python3 insights_report.py
 ```
 
 ## 📈 Próximos Passos
-- [ ] Implementação de OCR visual para textos em imagens complexas.
-- [ ] Exportação de relatórios em PDF/Excel.
-- [ ] Análise de sentimento baseada em IA.
+- [x] Implementação de OCR visual para textos em imagens complexas.
+- [x] Exportação de relatórios em PDF/Excel.
+- [x] Análise de sentimento baseada em IA (Lexicon mapping).
+- [ ] Multi-login e troca rápida de contas.
+- [ ] Agendamento de execuções.
 
 ---
 **Versão atual**: 1.2.0
